@@ -1,22 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
+import { apiGetLogs } from "@/lib/api";
 
 type LogLevel = "ALL" | "INFO" | "WARN" | "ERROR" | "DEBUG";
 
-const ALL_LOGS = [
-  { id: 1, time: "10:44:12.345", level: "INFO", service: "auth", message: "Пользователь admin@nexus.io успешно авторизован", ip: "192.168.1.1" },
-  { id: 2, time: "10:43:55.123", level: "WARN", service: "api", message: "Превышен лимит запросов: 1000/мин для IP 192.168.1.45", ip: "192.168.1.45" },
-  { id: 3, time: "10:43:20.789", level: "ERROR", service: "db", message: "Connection timeout after 30s: PostgreSQL host unreachable", ip: "10.0.0.5" },
-  { id: 4, time: "10:42:44.456", level: "DEBUG", service: "api", message: "GET /api/v1/users?page=1&limit=50 → 200 OK [42ms]", ip: "192.168.1.22" },
-  { id: 5, time: "10:42:07.001", level: "INFO", service: "deploy", message: "Развёртывание v2.4.1 завершено успешно", ip: "10.0.0.1" },
-  { id: 6, time: "10:41:33.678", level: "INFO", service: "auth", message: "Создана новая сессия: session_id=abc123xyz lifetime=24h", ip: "192.168.1.3" },
-  { id: 7, time: "10:40:10.234", level: "ERROR", service: "mail", message: "SMTP error: Connection refused to smtp.nexus.io:587", ip: "10.0.0.8" },
-  { id: 8, time: "10:39:45.567", level: "WARN", service: "cache", message: "Redis memory usage at 85% capacity", ip: "10.0.0.9" },
-  { id: 9, time: "10:38:22.890", level: "DEBUG", service: "api", message: "POST /api/v1/auth/login → 401 Unauthorized [12ms]", ip: "192.168.1.99" },
-  { id: 10, time: "10:37:15.123", level: "INFO", service: "cron", message: "Плановая задача backup запущена: backup_users_20260324", ip: "10.0.0.1" },
-  { id: 11, time: "10:36:05.456", level: "INFO", service: "api", message: "DELETE /api/v1/sessions/xyz789 → 204 No Content [8ms]", ip: "192.168.1.7" },
-  { id: 12, time: "10:35:50.789", level: "WARN", service: "auth", message: "Неудачная попытка входа: 3/5 для user@nexus.io", ip: "192.168.1.45" },
-];
+interface LogEntry {
+  id: string;
+  time: string;
+  level: string;
+  service: string;
+  message: string;
+  ip: string;
+}
 
 const LEVEL_CONFIG: Record<string, { color: string; bg: string }> = {
   INFO: { color: "#00FF88", bg: "rgba(0,255,136,0.12)" },
@@ -39,14 +34,40 @@ export default function LogsSection() {
   const [filter, setFilter] = useState<LogLevel>("ALL");
   const [search, setSearch] = useState("");
   const [live, setLive] = useState(true);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = ALL_LOGS.filter((log) => {
-    const matchLevel = filter === "ALL" || log.level === filter;
-    const matchSearch = search === "" ||
-      log.message.toLowerCase().includes(search.toLowerCase()) ||
-      log.service.toLowerCase().includes(search.toLowerCase());
-    return matchLevel && matchSearch;
-  });
+  const fetchLogs = useCallback(async () => {
+    try {
+      const data = await apiGetLogs({ level: filter, limit: 100 });
+      if (data.logs) {
+        setLogs(data.logs);
+        setTotal(data.total || data.logs.length);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchLogs();
+  }, [fetchLogs]);
+
+  useEffect(() => {
+    if (!live) return;
+    const interval = setInterval(fetchLogs, 10000);
+    return () => clearInterval(interval);
+  }, [live, fetchLogs]);
+
+  const filtered = logs.filter((log) =>
+    search === "" ||
+    log.message.toLowerCase().includes(search.toLowerCase()) ||
+    log.service.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="space-y-5 max-w-7xl">
@@ -97,12 +118,16 @@ export default function LogsSection() {
               border: "1px solid rgba(255,255,255,0.08)",
             }}
           >
-            <span className={`status-dot ${live ? "animate-pulse-glow" : ""}`}
+            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
               style={{ background: live ? "#00FF88" : "#555" }} />
             LIVE
           </button>
-          <button className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-secondary/50">
-            <Icon name="Download" size={16} />
+          <button
+            onClick={fetchLogs}
+            className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-secondary/50"
+            title="Обновить"
+          >
+            <Icon name={loading ? "Loader2" : "RefreshCw"} size={16} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
       </div>
@@ -116,41 +141,47 @@ export default function LogsSection() {
           <span className="text-xs text-muted-foreground font-mono-code w-28 hidden lg:block">IP</span>
         </div>
 
-        <div className="divide-y divide-border/50">
-          {filtered.map((log) => (
-            <div
-              key={log.id}
-              className="flex items-start gap-4 px-4 py-3 hover:bg-secondary/20 transition-colors group"
-            >
-              <span className="font-mono-code text-xs text-muted-foreground w-28 flex-shrink-0 mt-0.5">
-                {log.time}
-              </span>
-              <span
-                className="text-xs font-semibold font-mono-code px-2 py-0.5 rounded w-16 flex-shrink-0 text-center"
-                style={{
-                  color: LEVEL_CONFIG[log.level]?.color,
-                  background: LEVEL_CONFIG[log.level]?.bg,
-                }}
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Icon name="Loader2" size={24} className="animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="divide-y divide-border/50">
+            {filtered.map((log) => (
+              <div
+                key={log.id}
+                className="flex items-start gap-4 px-4 py-3 hover:bg-secondary/20 transition-colors group"
               >
-                {log.level}
-              </span>
-              <span
-                className="text-xs font-semibold font-mono-code w-16 flex-shrink-0 mt-0.5"
-                style={{ color: SERVICE_COLOR[log.service] || "#888" }}
-              >
-                [{log.service}]
-              </span>
-              <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors flex-1 font-mono-code leading-relaxed">
-                {log.message}
-              </span>
-              <span className="font-mono-code text-xs text-muted-foreground w-28 flex-shrink-0 hidden lg:block mt-0.5">
-                {log.ip}
-              </span>
-            </div>
-          ))}
-        </div>
+                <span className="font-mono-code text-xs text-muted-foreground w-28 flex-shrink-0 mt-0.5">
+                  {log.time}
+                </span>
+                <span
+                  className="text-xs font-semibold font-mono-code px-2 py-0.5 rounded w-16 flex-shrink-0 text-center"
+                  style={{
+                    color: LEVEL_CONFIG[log.level]?.color,
+                    background: LEVEL_CONFIG[log.level]?.bg,
+                  }}
+                >
+                  {log.level}
+                </span>
+                <span
+                  className="text-xs font-semibold font-mono-code w-16 flex-shrink-0 mt-0.5"
+                  style={{ color: SERVICE_COLOR[log.service] || "#888" }}
+                >
+                  [{log.service}]
+                </span>
+                <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors flex-1 font-mono-code leading-relaxed">
+                  {log.message}
+                </span>
+                <span className="font-mono-code text-xs text-muted-foreground w-28 flex-shrink-0 hidden lg:block mt-0.5">
+                  {log.ip}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
-        {filtered.length === 0 && (
+        {!loading && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <Icon name="SearchX" size={32} className="mb-3 opacity-40" />
             <p className="text-sm">Нет записей по заданным фильтрам</p>
@@ -159,7 +190,7 @@ export default function LogsSection() {
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-        <span>Показано {filtered.length} из {ALL_LOGS.length} записей</span>
+        <span>Показано {filtered.length} из {total} записей</span>
         <span className="font-mono-code">Обновлено: {new Date().toLocaleTimeString("ru-RU")}</span>
       </div>
     </div>

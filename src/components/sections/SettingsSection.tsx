@@ -1,12 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Icon from "@/components/ui/icon";
-
-const USERS_TABLE = [
-  { id: "1", name: "Алексей Громов", email: "admin@nexus.io", role: "admin", status: "active", created: "01.01.2026" },
-  { id: "2", name: "Мария Соколова", email: "manager@nexus.io", role: "manager", status: "active", created: "10.02.2026" },
-  { id: "3", name: "Иван Петров", email: "viewer@nexus.io", role: "viewer", status: "active", created: "15.02.2026" },
-  { id: "4", name: "Дарья Кузнецова", email: "daria@nexus.io", role: "manager", status: "suspended", created: "20.03.2026" },
-];
+import { apiGetUsers, apiUpdateUserRole, apiUpdateUserStatus } from "@/lib/api";
 
 const ROLE_COLOR: Record<string, string> = {
   admin: "#FF006E",
@@ -24,21 +18,31 @@ type Tab = "users" | "security" | "system";
 
 export default function SettingsSection() {
   const [tab, setTab] = useState<Tab>("users");
-  const [users, setUsers] = useState(USERS_TABLE);
+  const [users, setUsers] = useState<{id: string; name: string; email: string; role: string; status: string; avatar: string; created: string}[]>([]);
+  const [usersLoading, setUsersLoading] = useState(true);
   const [sessionTimeout, setSessionTimeout] = useState(24);
   const [maxAttempts, setMaxAttempts] = useState(5);
   const [twoFactor, setTwoFactor] = useState(false);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [debugMode, setDebugMode] = useState(true);
 
-  const changeRole = (id: string, newRole: string) => {
+  useEffect(() => {
+    apiGetUsers().then((data) => {
+      if (data.users) setUsers(data.users);
+    }).finally(() => setUsersLoading(false));
+  }, []);
+
+  const changeRole = async (id: string, newRole: string) => {
     setUsers((prev) => prev.map((u) => u.id === id ? { ...u, role: newRole } : u));
+    await apiUpdateUserRole(id, newRole);
   };
 
-  const toggleStatus = (id: string) => {
-    setUsers((prev) => prev.map((u) =>
-      u.id === id ? { ...u, status: u.status === "active" ? "suspended" : "active" } : u
-    ));
+  const toggleStatus = async (id: string) => {
+    const user = users.find((u) => u.id === id);
+    if (!user) return;
+    const newStatus = user.status === "active" ? "suspended" : "active";
+    setUsers((prev) => prev.map((u) => u.id === id ? { ...u, status: newStatus } : u));
+    await apiUpdateUserStatus(id, newStatus);
   };
 
   const TABS: { id: Tab; label: string; icon: string }[] = [
@@ -82,8 +86,13 @@ export default function SettingsSection() {
               Добавить
             </button>
           </div>
+          {usersLoading && (
+            <div className="flex items-center justify-center py-12">
+              <Icon name="Loader2" size={20} className="animate-spin text-muted-foreground" />
+            </div>
+          )}
           <div className="divide-y divide-border/50">
-            {users.map((u) => (
+            {!usersLoading && users.map((u) => (
               <div key={u.id} className="flex items-center gap-4 px-5 py-4 hover:bg-secondary/20 transition-colors">
                 <div
                   className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold flex-shrink-0"

@@ -1,39 +1,16 @@
 import { useState } from "react";
-import { User, UserRole } from "@/pages/Index";
+import { User } from "@/pages/Index";
 import Icon from "@/components/ui/icon";
+import { apiLogin, setToken } from "@/lib/api";
 
 interface AuthPageProps {
   onLogin: (user: User) => void;
 }
 
 const DEMO_USERS = [
-  {
-    id: "1",
-    name: "Алексей Громов",
-    email: "admin@nexus.io",
-    password: "admin123",
-    role: "admin" as UserRole,
-    avatar: "АГ",
-    lastLogin: "24 марта 2026, 10:32",
-  },
-  {
-    id: "2",
-    name: "Мария Соколова",
-    email: "manager@nexus.io",
-    password: "manager123",
-    role: "manager" as UserRole,
-    avatar: "МС",
-    lastLogin: "23 марта 2026, 17:15",
-  },
-  {
-    id: "3",
-    name: "Иван Петров",
-    email: "viewer@nexus.io",
-    password: "viewer123",
-    role: "viewer" as UserRole,
-    avatar: "ИП",
-    lastLogin: "22 марта 2026, 09:00",
-  },
+  { email: "admin@nexus.io", password: "admin123", role: "admin", avatar: "АГ" },
+  { email: "manager@nexus.io", password: "manager123", role: "manager", avatar: "МС" },
+  { email: "viewer@nexus.io", password: "viewer123", role: "viewer", avatar: "ИП" },
 ];
 
 export default function AuthPage({ onLogin }: AuthPageProps) {
@@ -43,23 +20,23 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
-
-    setTimeout(() => {
-      const found = DEMO_USERS.find(
-        (u) => u.email === email && u.password === password
-      );
-      if (found) {
-        const { password: _, ...userWithoutPassword } = found;
-        onLogin(userWithoutPassword);
+    try {
+      const data = await apiLogin(email, password);
+      if (data.token && data.user) {
+        setToken(data.token);
+        onLogin(data.user);
       } else {
-        setError("Неверный email или пароль");
+        setError(data.error || "Неверный email или пароль");
       }
+    } catch {
+      setError("Ошибка соединения с сервером");
+    } finally {
       setLoading(false);
-    }, 800);
+    }
   };
 
   const quickLogin = (demoUser: typeof DEMO_USERS[0]) => {
